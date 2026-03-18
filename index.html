@@ -1,175 +1,468 @@
-from flask import Flask, request, jsonify, send_file, Response
-from flask_cors import CORS
-import yt_dlp, os, tempfile, re, traceback, subprocess, shutil
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MaNiLoader — YouTube Downloader</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Exo+2:wght@300;400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:       #08080f;
+    --purple:   #7c3aed;
+    --purple2:  #5b21b6;
+    --purple-l: #a78bfa;
+    --pink:     #c026d3;
+    --glass-bg: rgba(124,58,237,0.06);
+    --glass-bd: rgba(124,58,237,0.25);
+    --text:     #ede9fe;
+    --muted:    #6b7280;
+    --btn-grad: linear-gradient(135deg,#7c3aed,#c026d3);
+  }
 
-app = Flask(__name__, static_folder='.', static_url_path='')
-CORS(app, resources={r"/*": {"origins": "*"}})
+  *{margin:0;padding:0;box-sizing:border-box;}
 
-@app.after_request
-def cors(r):
-    r.headers['Access-Control-Allow-Origin']  = '*'
-    r.headers['Access-Control-Allow-Methods'] = 'GET,POST,OPTIONS'
-    r.headers['Access-Control-Allow-Headers'] = 'Content-Type'
-    return r
+  body{
+    font-family:'Exo 2',sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    min-height:100vh;
+    overflow-x:hidden;
+  }
 
-# ── sprawdź ffmpeg ──
-FFMPEG = shutil.which('ffmpeg') is not None
+  /* ═══ CANVAS ═══ */
+  #cvs{position:fixed;inset:0;z-index:0;pointer-events:none;}
 
-# ── cookies ──
-COOKIES_FILE = '/home/container/cookies.txt'  # wgraj ten plik na TostHost
-def get_cookies_opt():
-    if os.path.exists(COOKIES_FILE):
-        return {'cookiefile': COOKIES_FILE}
-    return {}
+  /* ═══ NEBULA BLOBS ═══ */
+  .blob{position:fixed;border-radius:50%;filter:blur(130px);opacity:0.13;pointer-events:none;z-index:0;}
+  .b1{width:800px;height:800px;background:radial-gradient(#7c3aed,transparent 70%);top:-350px;left:-250px;animation:bd 26s ease-in-out infinite alternate;}
+  .b2{width:650px;height:650px;background:radial-gradient(#c026d3,transparent 70%);bottom:-250px;right:-200px;animation:bd 32s ease-in-out infinite alternate-reverse;}
+  .b3{width:450px;height:450px;background:radial-gradient(#4f46e5,transparent 70%);top:40%;left:60%;animation:bd 21s ease-in-out infinite alternate;}
+  @keyframes bd{0%{transform:translate(0,0) scale(1);}100%{transform:translate(35px,25px) scale(1.12);}}
 
-@app.route('/', methods=['GET'])
-def index():
-    return app.send_static_file('index.html')
+  /* ═══ LAYOUT ═══ */
+  .wrap{position:relative;z-index:10;max-width:800px;margin:0 auto;padding:60px 24px 90px;}
 
-@app.route('/cookies-status', methods=['GET'])
-def cookies_status():
-    exists = os.path.exists(COOKIES_FILE)
-    size   = os.path.getsize(COOKIES_FILE) if exists else 0
-    return jsonify({'cookies_loaded': exists, 'file': COOKIES_FILE, 'size_bytes': size})
+  /* ═══ HEADER ═══ */
+  header{text-align:center;margin-bottom:52px;animation:fdown .8s ease both;}
 
-@app.route('/ping', methods=['GET','OPTIONS'])
-def ping():
-    return jsonify({'status':'ok','ffmpeg': FFMPEG})
+  .logo-row{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:12px;}
 
-@app.route('/info', methods=['POST','OPTIONS'])
-def info():
-    if request.method == 'OPTIONS':
-        return jsonify({'ok':True})
-    try:
-        url = request.json.get('url','').strip()
-        if not url:
-            return jsonify({'error':'Brak URL'}), 400
+  .logo-icon{
+    width:54px;height:54px;border-radius:14px;
+    overflow:hidden;flex-shrink:0;
+    box-shadow:0 0 30px rgba(124,58,237,0.6);
+    animation:pglow 3s ease-in-out infinite;
+    background:linear-gradient(135deg,#7c3aed,#c026d3);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .logo-icon img{width:100%;height:100%;object-fit:contain;display:block;}
 
-        opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'skip_download': True,
-            **get_cookies_opt(),
-        }
+  @keyframes pglow{
+    0%,100%{box-shadow:0 0 25px rgba(124,58,237,0.5);}
+    50%{box-shadow:0 0 55px rgba(192,38,211,0.75);}
+  }
 
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            meta = ydl.extract_info(url, download=False)
+  h1{
+    font-family:'Orbitron',monospace;
+    font-size:clamp(30px,6vw,52px);
+    font-weight:900;letter-spacing:4px;
+    background:linear-gradient(90deg,var(--purple-l),#fff 50%,var(--pink));
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  }
+  .tagline{color:var(--muted);font-size:13px;letter-spacing:2px;text-transform:uppercase;margin-top:6px;}
 
-        # Zbierz unikalne rozdzielczości
-        heights = set()
-        for f in meta.get('formats', []):
-            h = f.get('height')
-            if h and isinstance(h, int) and h > 0:
-                heights.add(h)
+  /* ═══ GLASS CARD ═══ */
+  .card{
+    background:var(--glass-bg);border:1px solid var(--glass-bd);
+    border-radius:22px;padding:36px;
+    backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+    box-shadow:0 8px 48px rgba(0,0,0,0.5),inset 0 1px 0 rgba(255,255,255,0.06);
+    animation:fup .8s .2s ease both;
+  }
+  @keyframes fup  {from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:none}}
+  @keyframes fdown{from{opacity:0;transform:translateY(-18px)}to{opacity:1;transform:none}}
 
-        heights = sorted(heights, reverse=True)
-        labels = []
-        for h in heights:
-            if   h >= 2160 and '4K'    not in labels: labels.append('4K')
-            elif h >= 1440 and '1440p' not in labels: labels.append('1440p')
-            elif h >= 1080 and '1080p' not in labels: labels.append('1080p')
-            elif h >= 720  and '720p'  not in labels: labels.append('720p')
-            elif h >= 480  and '480p'  not in labels: labels.append('480p')
-            elif h >= 360  and '360p'  not in labels: labels.append('360p')
-            elif h >= 240  and '240p'  not in labels: labels.append('240p')
+  /* ═══ INPUT ═══ */
+  .igroup{display:flex;gap:10px;margin-bottom:28px;}
+  .urlinput{
+    flex:1;background:rgba(0,0,0,0.45);border:1px solid var(--glass-bd);
+    border-radius:12px;padding:14px 18px;color:var(--text);
+    font-family:'Exo 2',sans-serif;font-size:15px;outline:none;
+    transition:border-color .3s,box-shadow .3s;
+  }
+  .urlinput::placeholder{color:var(--muted);}
+  .urlinput:focus{border-color:var(--purple);box-shadow:0 0 0 3px rgba(124,58,237,0.18);}
+  .btn-scan{
+    background:var(--btn-grad);color:#fff;border:none;border-radius:12px;
+    padding:14px 22px;font-family:'Orbitron',monospace;font-size:12px;font-weight:700;
+    letter-spacing:1px;cursor:pointer;transition:all .3s;white-space:nowrap;
+    box-shadow:0 4px 20px rgba(124,58,237,0.35);
+  }
+  .btn-scan:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(124,58,237,0.55);}
+  .btn-scan:disabled{opacity:.45;cursor:not-allowed;transform:none;}
 
-        if not labels:
-            labels = ['1080p','720p','480p','360p']
+  /* ═══ STATUS ═══ */
+  .sbar{display:none;align-items:center;gap:12px;background:rgba(124,58,237,0.08);border:1px solid rgba(124,58,237,0.25);border-radius:10px;padding:14px 18px;margin-bottom:22px;font-size:14px;}
+  .sbar.on{display:flex;}
+  .spin{width:18px;height:18px;flex-shrink:0;border:2px solid rgba(124,58,237,0.2);border-top-color:var(--purple-l);border-radius:50%;animation:sp .8s linear infinite;}
+  @keyframes sp{to{transform:rotate(360deg)}}
 
-        is_shorts = '/shorts/' in url.lower()
+  /* ═══ VIDEO INFO ═══ */
+  .vinfo{display:none;gap:18px;margin-bottom:26px;}
+  .vinfo.on{display:flex;}
+  .thumb{flex-shrink:0;width:140px;height:88px;border-radius:10px;overflow:hidden;border:1px solid var(--glass-bd);background:rgba(0,0,0,0.4);position:relative;}
+  .thumb img{width:100%;height:100%;object-fit:cover;}
+  .sbadge{display:none;position:absolute;top:5px;right:5px;background:linear-gradient(135deg,#ef4444,#f97316);color:#fff;font-family:'Orbitron',monospace;font-size:9px;font-weight:700;padding:3px 7px;border-radius:20px;letter-spacing:1px;}
+  .vmeta{flex:1;min-width:0;}
+  .vtitle{font-weight:600;font-size:15px;line-height:1.4;margin-bottom:8px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+  .tags{display:flex;gap:8px;flex-wrap:wrap;}
+  .tag{background:rgba(124,58,237,0.1);border:1px solid rgba(124,58,237,0.25);border-radius:20px;padding:3px 12px;font-size:12px;color:var(--purple-l);font-family:'Orbitron',monospace;letter-spacing:.5px;}
+  .tag.sh{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.3);color:#f87171;}
+  .tag.dur{background:rgba(255,215,0,.06);border-color:rgba(255,215,0,.2);color:#fde68a;}
 
-        return jsonify({
-            'cookies_active': os.path.exists(COOKIES_FILE),
-            'title':       meta.get('title','Brak tytułu'),
-            'thumbnail':   meta.get('thumbnail',''),
-            'duration':    meta.get('duration', 0) or 0,
-            'isShorts':    is_shorts,
-            'resolutions': labels,
-        })
+  /* ═══ SECTION LABEL ═══ */
+  .slabel{font-family:'Orbitron',monospace;font-size:10px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+  .slabel::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,rgba(124,58,237,.3),transparent);}
 
-    except Exception as e:
-        tb = traceback.format_exc()
-        print("ERROR /info:", tb)
-        return jsonify({'error': str(e), 'details': tb[-500:]}), 500
+  /* ═══ QUALITY ═══ */
+  .qsec{display:none;}
+  .qsec.on{display:block;animation:fup .5s ease both;}
+  .fmts{display:flex;gap:8px;margin-bottom:22px;}
+  .fbtn{flex:1;background:rgba(0,0,0,.3);border:1px solid var(--glass-bd);border-radius:10px;padding:10px;color:var(--muted);font-family:'Exo 2',sans-serif;font-size:13px;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:7px;}
+  .fbtn.act{background:rgba(124,58,237,.12);border-color:var(--purple);color:var(--purple-l);box-shadow:0 0 14px rgba(124,58,237,.2);}
+  .qgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:22px;}
+  .qbtn{background:rgba(0,0,0,.3);border:1px solid var(--glass-bd);border-radius:12px;padding:14px 10px;cursor:pointer;transition:all .25s;text-align:center;position:relative;overflow:hidden;}
+  .qbtn::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,#7c3aed,#c026d3);opacity:0;transition:opacity .25s;}
+  .qbtn:hover{border-color:var(--purple);transform:translateY(-3px);box-shadow:0 8px 24px rgba(124,58,237,.25);}
+  .qbtn.sel{border-color:var(--purple);box-shadow:0 0 22px rgba(124,58,237,.35);}
+  .qbtn.sel::before{opacity:.1;}
+  .qi{position:relative;z-index:1;}
+  .qr{font-family:'Orbitron',monospace;font-size:17px;font-weight:700;color:var(--text);display:block;margin-bottom:3px;}
+  .ql{font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;display:block;}
+  .qb{display:inline-block;font-size:9px;font-family:'Orbitron',monospace;padding:2px 6px;border-radius:4px;margin-top:5px;letter-spacing:.5px;}
+  .qb.hdr{background:rgba(255,215,0,.1);color:#fde68a;border:1px solid rgba(255,215,0,.3);}
+  .qb.hd{background:rgba(124,58,237,.15);color:var(--purple-l);border:1px solid rgba(124,58,237,.3);}
+  .qb.sd{background:rgba(100,100,100,.1);color:#9ca3af;border:1px solid rgba(100,100,100,.2);}
 
+  /* ═══ DOWNLOAD BTN ═══ */
+  .dlbtn{width:100%;background:linear-gradient(135deg,#180a2e,#1e0a30);border:1px solid var(--purple);border-radius:14px;padding:18px;color:var(--purple-l);font-family:'Orbitron',monospace;font-size:14px;font-weight:700;letter-spacing:2px;cursor:pointer;transition:all .3s;display:none;align-items:center;justify-content:center;gap:12px;position:relative;overflow:hidden;}
+  .dlbtn::before{content:'';position:absolute;inset:-2px;background:linear-gradient(135deg,#7c3aed,#c026d3,#7c3aed);background-size:200%;border-radius:16px;z-index:-1;animation:gs 3s linear infinite;opacity:0;transition:opacity .3s;}
+  .dlbtn:hover::before{opacity:1;}
+  .dlbtn:hover{color:#fff;transform:translateY(-2px);box-shadow:0 10px 40px rgba(124,58,237,.4);}
+  .dlbtn.on{display:flex;}
+  @keyframes gs{0%{background-position:0%}100%{background-position:200%}}
 
-@app.route('/download', methods=['POST','OPTIONS'])
-def download():
-    if request.method == 'OPTIONS':
-        return jsonify({'ok':True})
-    try:
-        data    = request.json
-        url     = data.get('url','').strip()
-        quality = data.get('quality','1080p')
-        fmt     = data.get('format','mp4')
+  /* ═══ PROGRESS ═══ */
+  .prog{display:none;margin-top:18px;}
+  .prog.on{display:block;animation:fup .4s ease both;}
+  .ptrack{height:6px;background:rgba(255,255,255,.06);border-radius:3px;overflow:hidden;margin-bottom:10px;}
+  .pfill{height:100%;width:0%;border-radius:3px;background:linear-gradient(90deg,#7c3aed,#c026d3);transition:width .3s ease;box-shadow:0 0 12px rgba(124,58,237,.5);position:relative;}
+  .pfill::after{content:'';position:absolute;right:0;top:0;width:18px;height:100%;background:white;border-radius:3px;opacity:.4;filter:blur(4px);}
+  .ptxt{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);font-family:'Orbitron',monospace;}
 
-        if not url:
-            return jsonify({'error':'Brak URL'}), 400
+  /* ═══ PILLS ═══ */
+  .pills{display:flex;gap:10px;flex-wrap:wrap;margin-top:24px;padding-top:22px;border-top:1px solid rgba(124,58,237,.12);}
+  .pill{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);border-radius:20px;padding:5px 13px;}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--purple-l);}
 
-        h_map = {'4K':'2160','1440p':'1440','1080p':'1080',
-                 '720p':'720','480p':'480','360p':'360','240p':'240'}
-        height = h_map.get(quality, re.sub(r'[^0-9]','', quality) or '1080')
+  .note{margin-top:28px;text-align:center;font-size:11px;color:var(--muted);opacity:.5;letter-spacing:.5px;animation:fup .8s .5s ease both;}
+  ::-webkit-scrollbar{width:5px;}
+  ::-webkit-scrollbar-thumb{background:rgba(124,58,237,.3);border-radius:3px;}
+</style>
+</head>
+<body>
 
-        tmp = tempfile.mkdtemp()
-        out = os.path.join(tmp, '%(title)s.%(ext)s')
+<div class="blob b1"></div>
+<div class="blob b2"></div>
+<div class="blob b3"></div>
+<canvas id="cvs"></canvas>
 
-        if fmt == 'mp3':
-            if FFMPEG:
-                ydl_opts = {
-                    'format': 'bestaudio/best',
-                    'outtmpl': out, 'quiet': True,
-                    **get_cookies_opt(),
-                    'postprocessors': [{'key':'FFmpegExtractAudio',
-                                        'preferredcodec':'mp3',
-                                        'preferredquality':'192'}],
-                }
-            else:
-                # bez ffmpeg — pobierz jako webm/m4a
-                ydl_opts = {
-                    'format': 'bestaudio/best',
-                    'outtmpl': out, 'quiet': True,
-                    **get_cookies_opt(),
-                }
-        else:
-            if FFMPEG:
-                ydl_opts = {
-                    'format': f'bestvideo[height<={height}][ext=mp4]+bestaudio[ext=m4a]/bestvideo[height<={height}]+bestaudio/best[height<={height}]/best',
-                    'outtmpl': out, 'quiet': True,
-                    'merge_output_format': 'mp4',
-                    **get_cookies_opt(),
-                }
-            else:
-                # bez ffmpeg — tylko pre-merged
-                ydl_opts = {
-                    'format': f'best[height<={height}][ext=mp4]/best[height<={height}]/best',
-                    'outtmpl': out, 'quiet': True,
-                    **get_cookies_opt(),
-                }
+<div class="wrap">
+  <header>
+    <div class="logo-row">
+      <div class="logo-icon">
+        <!-- Wstaw swoje logo do folderu img/ jako logo.png -->
+        <img src="img/logo.png" alt="MaNiLoader logo"
+             onerror="this.style.display='none';this.parentElement.innerHTML='🚀';">
+      </div>
+      <h1>MaNiLoader</h1>
+    </div>
+    <p class="tagline">YouTube Downloader &nbsp;·&nbsp; By MaNiBot</p>
+  </header>
 
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-            if fmt == 'mp3' and FFMPEG:
-                filename = os.path.splitext(filename)[0] + '.mp3'
+  <div class="card">
+    <div class="igroup">
+      <input type="text" class="urlinput" id="urlInput"
+        placeholder="Wklej link YouTube (video lub Shorts)…"/>
+      <button class="btn-scan" id="scanBtn" onclick="analyzeVideo()">SKANUJ</button>
+    </div>
 
-        # Znajdź pobrany plik
-        if not os.path.exists(filename):
-            files = [os.path.join(tmp,f) for f in os.listdir(tmp)]
-            if not files:
-                return jsonify({'error':'Plik nie istnieje po pobraniu'}), 500
-            filename = max(files, key=os.path.getsize)
+    <div class="sbar" id="sbar">
+      <div class="spin"></div>
+      <span id="stxt">Analizuję…</span>
+    </div>
 
-        safe = re.sub(r'[^\w\-_. ]','_', os.path.basename(filename))
-        return send_file(filename, as_attachment=True, download_name=safe)
+    <div class="vinfo" id="vinfo">
+      <div class="thumb">
+        <img id="thumbImg" src="" alt="thumb"/>
+        <span class="sbadge" id="sbadge">SHORTS</span>
+      </div>
+      <div class="vmeta">
+        <div class="vtitle" id="vtitle"></div>
+        <div class="tags" id="vtags"></div>
+      </div>
+    </div>
 
-    except Exception as e:
-        tb = traceback.format_exc()
-        print("ERROR /download:", tb)
-        return jsonify({'error': str(e), 'details': tb[-500:]}), 500
+    <div class="qsec" id="qsec">
+      <div class="slabel">Format</div>
+      <div class="fmts">
+        <button class="fbtn act" data-fmt="mp4" onclick="selFmt(this)">🎬 MP4</button>
+        <button class="fbtn" data-fmt="mp3" onclick="selFmt(this)">🎵 MP3</button>
+        <button class="fbtn" data-fmt="webm" onclick="selFmt(this)">⚙️ WebM</button>
+      </div>
+      <div class="slabel" id="qlabel">Rozdzielczość</div>
+      <div class="qgrid" id="qgrid"></div>
+      <button class="dlbtn" id="dlbtn" onclick="startDownload()">⬇ POBIERZ</button>
+      <div class="prog" id="prog">
+        <div class="ptrack"><div class="pfill" id="pfill"></div></div>
+        <div class="ptxt"><span id="plabel">Pobieranie…</span><span id="ppct">0%</span></div>
+      </div>
+    </div>
 
+    <div class="pills">
+      <div class="pill"><div class="dot"></div>Shorts wykrywane auto</div>
+      <div class="pill"><div class="dot" style="background:#f472b6"></div>Do 4K HDR</div>
+      <div class="pill"><div class="dot" style="background:#fde68a"></div>MP3 320kbps</div>
+    </div>
+  </div>
 
-if __name__ == '__main__':
-    print(f"\n✅ MaNiLoader backend uruchomiony!")
-    print(f"   ffmpeg dostępny: {FFMPEG}")
-    print(f"   Otwórz: http://localhost:5002\n")
-    app.run(host='0.0.0.0', port=5002, debug=False)
+  <p class="note" id="backendNote">⚠️ Łączę z backendem…</p>
+</div>
+
+<script>
+// ══ STARS ══
+const cvs=document.getElementById('cvs'),ctx=cvs.getContext('2d');
+let layers=[];
+function resize(){cvs.width=window.innerWidth;cvs.height=window.innerHeight;}
+window.addEventListener('resize',()=>{resize();buildLayers();});
+resize();
+
+const COLS=[[255,255,255],[167,139,250],[139,120,255],[196,181,253],[220,200,255],[140,180,255]];
+
+function makeLayer(n,vy,rMin,rMax,driftMax){
+  return Array.from({length:n},()=>{
+    const c=COLS[Math.floor(Math.random()*COLS.length)];
+    return{x:Math.random()*cvs.width,y:Math.random()*cvs.height,
+      r:rMin+Math.random()*(rMax-rMin),a:.2+Math.random()*.8,
+      phase:Math.random()*Math.PI*2,tw:.002+Math.random()*.006,
+      drift:(Math.random()-.5)*driftMax,vy:-vy*(.5+Math.random()),col:c};
+  });
+}
+function buildLayers(){layers=[makeLayer(200,.015,.3,.9,.05),makeLayer(120,.04,.5,1.5,.2),makeLayer(60,.09,.8,2.2,.55)];}
+buildLayers();
+
+function draw(){
+  ctx.clearRect(0,0,cvs.width,cvs.height);
+  const t=Date.now()*.001;
+  layers.forEach((layer,li)=>{
+    layer.forEach(s=>{
+      s.y+=s.vy; s.x+=s.drift;
+      if(s.y<-2)s.y=cvs.height+2; if(s.y>cvs.height+2)s.y=-2;
+      if(s.x<-2)s.x=cvs.width+2;  if(s.x>cvs.width+2)s.x=-2;
+      const al=(.25+.75*Math.abs(Math.sin(t*s.tw*60+s.phase)))*s.a;
+      ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2);
+      ctx.fillStyle=`rgba(${s.col},${al.toFixed(3)})`; ctx.fill();
+      if(li===2&&s.r>1.5){
+        ctx.beginPath(); ctx.arc(s.x,s.y,s.r*2.5,0,Math.PI*2);
+        ctx.fillStyle=`rgba(${s.col},${(al*.15).toFixed(3)})`; ctx.fill();
+      }
+    });
+  });
+  requestAnimationFrame(draw);
+}
+draw();
+
+// Shooting stars
+const sskf=document.createElement('style');
+sskf.textContent='@keyframes ss{0%{opacity:1;transform:translateX(0) translateY(0)}100%{opacity:0;transform:translateX(220px) translateY(110px)}}';
+document.head.appendChild(sskf);
+setInterval(()=>{
+  const e=document.createElement('div');
+  const top=Math.random()*window.innerHeight*.7,left=Math.random()*window.innerWidth*.75;
+  const len=Math.random()*100+50,dur=(.5+Math.random()*.8).toFixed(2);
+  e.style.cssText=`position:fixed;pointer-events:none;z-index:1;top:${top}px;left:${left}px;width:${len}px;height:1.5px;background:linear-gradient(90deg,rgba(167,139,250,.9),transparent);border-radius:2px;animation:ss ${dur}s linear forwards;`;
+  document.body.appendChild(e);
+  setTimeout(()=>e.remove(),dur*1000+200);
+},2600);
+
+// ══ APP ══
+const API = '/api'; // proxy przez Netlify → n9.tosthost.pl:5002
+let selQ=null,selFmt_='mp4',vdata=null;
+
+// ══ BACKEND CHECK ══
+async function checkBackend(){
+  const note=document.getElementById('backendNote');
+  note.textContent='⏳ Łączę z backendem…';
+  try{
+    const ctrl=new AbortController();
+    const tid=setTimeout(()=>ctrl.abort(),5000);
+    const r=await fetch(API+'/ping',{signal:ctrl.signal});
+    clearTimeout(tid);
+    if(r.ok){ note.textContent='✅ Backend połączony!'; note.style.color='#86efac'; }
+    else throw new Error();
+  }catch(e){
+    note.textContent= e.name==='AbortError'
+      ? '⏱️ Backend nie odpowiada — sprawdź czy serwer działa'
+      : '⚠️ Backend offline — sprawdź logi TostHost';
+    note.style.color='#fca5a5';
+    setTimeout(checkBackend,10000);
+  }
+}
+checkBackend();
+
+const QM={'4K':{l:'Ultra HD',b:'HDR',bc:'hdr'},'1440p':{l:'2K QHD',b:'HD',bc:'hd'},'1080p':{l:'Full HD',b:'HD',bc:'hd'},'720p':{l:'HD Ready',b:'HD',bc:'hd'},'480p':{l:'Standard',b:'SD',bc:'sd'},'360p':{l:'Niska',b:'SD',bc:'sd'},'240p':{l:'Mobilna',b:'SD',bc:'sd'}};
+const AQ=['320 kbps','256 kbps','192 kbps','128 kbps'];
+
+async function analyzeVideo(){
+  const url=document.getElementById('urlInput').value.trim();
+  if(!url){shake(document.getElementById('urlInput'));return;}
+  const btn=document.getElementById('scanBtn');
+  btn.disabled=true;
+  clr('vinfo'); clr('qsec'); clr('prog');
+  document.getElementById('dlbtn').classList.remove('on');
+  document.getElementById('dlbtn').style.display='none';
+  selQ=null;
+  on('sbar'); setS('Analizuję link…');
+
+  try{
+    // Prawdziwy backend
+    setS('Pobieranie informacji…');
+    const res=await fetch(API+'/info',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
+    if(!res.ok){
+      let msg='Błąd serwera '+res.status;
+      try{ const j=await res.json(); msg=j.error||msg; }catch{}
+      throw new Error(msg);
+    }
+    vdata=await res.json();
+    if(vdata.error) throw new Error(vdata.error);
+  }catch(err){
+    off('sbar');
+    const note=document.getElementById('backendNote');
+    note.textContent='❌ '+err.message;
+    note.style.color='#fca5a5';
+    btn.disabled=false;
+    return;
+    // Fallback demo (nie używamy gdy backend działa)
+    if(false){
+    await wait(400); setS('Sprawdzam czy to Shorts…');
+    await wait(600); setS('Sprawdzam rozdzielczości…');
+    await wait(500);
+    vdata=(url.includes('shorts')||url.includes('/shorts/'))?
+      {isShorts:true,title:'Niesamowita sztuczka #shorts',duration:47,thumb:'https://picsum.photos/seed/sh1/400/225',resolutions:['1080p','720p','480p','360p']}:
+      {isShorts:false,title:'Najpiękniejsze miejsca na Ziemi — 4K Cinematic',duration:1847,thumb:'https://picsum.photos/seed/nat4k/400/225',resolutions:['4K','1440p','1080p','720p','480p','360p','240p']};
+  }
+
+  off('sbar');
+  renderInfo(vdata);
+  renderQ(vdata);
+  btn.disabled=false;
+}
+
+function renderInfo(v){
+  document.getElementById('thumbImg').src=v.thumb||v.thumbnail||'';
+  document.getElementById('vtitle').textContent=v.title;
+  document.getElementById('sbadge').style.display=v.isShorts?'block':'none';
+  const t=document.getElementById('vtags'); t.innerHTML='';
+  if(v.isShorts) t.innerHTML+=`<span class="tag sh">📱 Shorts</span>`;
+  t.innerHTML+=`<span class="tag dur">⏱ ${fmtDur(v.duration)}</span>`;
+  const maxR=Array.isArray(v.resolutions)?v.resolutions[0]:'?';
+  t.innerHTML+=`<span class="tag">📺 Max ${maxR}</span>`;
+  add('vinfo','on');
+}
+
+function renderQ(v){
+  const g=document.getElementById('qgrid'),lbl=document.getElementById('qlabel');
+  g.innerHTML='';
+  if(selFmt_==='mp3'){
+    lbl.textContent='Jakość audio';
+    AQ.forEach(q=>{
+      const b=mkQBtn(`<span class="qr">${q.split(' ')[0]}</span><span class="ql">${q.split(' ')[1]}</span><span class="qb hd">AUDIO</span>`);
+      b.onclick=()=>pickQ(b,q); g.appendChild(b);
+    });
+  } else {
+    lbl.textContent='Rozdzielczość';
+    (v.resolutions||[]).forEach(r=>{
+      const m=QM[r]||{l:r,b:'',bc:'sd'};
+      const b=mkQBtn(`<span class="qr">${r}</span><span class="ql">${m.l}</span>${m.b?`<span class="qb ${m.bc}">${m.b}</span>`:''}`);
+      b.onclick=()=>pickQ(b,r); g.appendChild(b);
+    });
+  }
+  add('qsec','on');
+}
+
+function mkQBtn(inner){
+  const b=document.createElement('div'); b.className='qbtn';
+  b.innerHTML=`<div class="qi">${inner}</div>`; return b;
+}
+
+function pickQ(el,val){
+  document.querySelectorAll('.qbtn').forEach(b=>b.classList.remove('sel'));
+  el.classList.add('sel'); selQ=val;
+  const d=document.getElementById('dlbtn');
+  d.style.display='flex'; d.classList.add('on');
+}
+
+function selFmt(el){
+  document.querySelectorAll('.fbtn').forEach(b=>b.classList.remove('act'));
+  el.classList.add('act'); selFmt_=el.dataset.fmt; selQ=null;
+  const d=document.getElementById('dlbtn'); d.classList.remove('on'); d.style.display='none';
+  if(vdata) renderQ(vdata);
+}
+
+async function startDownload(){
+  if(!selQ) return;
+  const url=document.getElementById('urlInput').value.trim();
+  const d=document.getElementById('dlbtn');
+  d.style.display='none'; add('prog','on');
+  const fill=document.getElementById('pfill'),pct=document.getElementById('ppct'),lbl=document.getElementById('plabel');
+
+  try{
+    lbl.textContent='Łączenie z serwerem…'; fill.style.width='10%'; pct.textContent='10%';
+    // Prawdziwe pobieranie przez backend
+    const response=await fetch(API+'/download',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({url,quality:selQ.replace('p','').replace('K','2160'),format:selFmt_})
+    });
+    if(!response.ok) throw new Error('Download failed');
+    fill.style.width='70%'; pct.textContent='70%'; lbl.textContent='Pobieranie pliku…';
+    const blob=await response.blob();
+    fill.style.width='100%'; pct.textContent='100%'; lbl.textContent='Gotowe! ✓';
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    const ext=selFmt_==='mp3'?'mp3':selFmt_==='webm'?'webm':'mp4';
+    a.download=`${(vdata.title||'video').slice(0,40)}_${selQ}.${ext}`;
+    a.click();
+  }catch{
+    // Demo animacja bez backedndu
+    const steps=[{p:5,t:300,txt:'Łączenie…'},{p:20,t:500,txt:'Pobieranie strumienia…'},{p:50,t:700,txt:`Kodowanie ${selQ}…`},{p:80,t:600,txt:'Przetwarzanie…'},{p:100,t:400,txt:'Gotowe (demo)! — uruchom backend aby pobrać plik ✓'}];
+    for(const s of steps){ await wait(s.t); fill.style.width=s.p+'%'; pct.textContent=s.p+'%'; lbl.textContent=s.txt; }
+  }
+
+  await wait(2000);
+  clr('prog'); fill.style.width='0%';
+  d.style.display='flex'; d.classList.add('on');
+}
+
+function on(id){document.getElementById(id).classList.add('on');}
+function off(id){document.getElementById(id).classList.remove('on');}
+function add(id,c){document.getElementById(id).classList.add(c);}
+function clr(id){const e=document.getElementById(id); e.classList.remove('on');}
+function setS(t){document.getElementById('stxt').textContent=t;}
+function wait(ms){return new Promise(r=>setTimeout(r,ms));}
+function fmtDur(s){if(!s)return'?';if(s<60)return s+'s';const m=Math.floor(s/60),sc=s%60;if(m<60)return`${m}:${String(sc).padStart(2,'0')}`;const h=Math.floor(m/60),mn=m%60;return`${h}:${String(mn).padStart(2,'0')}:${String(sc).padStart(2,'0')}`;}
+function shake(el){el.style.borderColor='#c026d3';el.style.boxShadow='0 0 0 3px rgba(192,38,211,.2)';setTimeout(()=>{el.style.borderColor='';el.style.boxShadow='';},900);}
+document.getElementById('urlInput').addEventListener('keydown',e=>{if(e.key==='Enter')analyzeVideo();});
+</script>
+</body>
+</html>
